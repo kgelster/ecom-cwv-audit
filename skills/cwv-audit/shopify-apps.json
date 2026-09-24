@@ -1,0 +1,654 @@
+{
+ "_comment": "Third-party network entity -> Shopify app -> fix route. Used by merge_findings.py to attribute Lighthouse third-parties-insight rows. Matching is substring-on-hostname, most specific match wins. Seeded from ecom-a11y-audit/skills/a11y-audit/references/shopify-attribution.md, remapped from CSS selectors to script hostnames because third-parties-insight keys on network entities, not DOM.",
+ "_owner_values": "theme | app | shopify | analytics | payment | unknown",
+ "_surface_values": "settings (app has a config/custom-CSS field that can reach it) | vendor (only the vendor can change it) | theme (merchant controls the embed) | none",
+ "version": "2026-08-09",
+ "first_party": [
+  {
+   "match": [
+    "cdn.shopify.com",
+    "shopifycdn.net"
+   ],
+   "entity": "Shopify CDN",
+   "owner": "theme",
+   "surface": "theme",
+   "route": "Assets served from the theme. Oversized JS/CSS bundles and unoptimized images here are theme-owned and fixable in Liquid.",
+   "perf_notes": "A large cdn.shopify.com JS payload is almost always the theme's own bundle or an app block's asset copied into the theme. Check assets/ before blaming an app."
+  },
+  {
+   "match": [
+    "monorail-edge.shopifysvc.com",
+    "shopify.com/api",
+    "shop.app"
+   ],
+   "entity": "Shopify Platform",
+   "owner": "shopify",
+   "surface": "none",
+   "route": "Shopify-owned telemetry and platform scripts. Not removable. Report as fixed overhead, never as an action item.",
+   "perf_notes": "Web Pixels and Shop Pay. Counts against TBT but is not merchant-actionable."
+  }
+ ],
+ "apps": [
+  {
+   "match": [
+    "rebuyengine.com"
+   ],
+   "entity": "Rebuy",
+   "app": "Rebuy Personalization Engine",
+   "category": "upsell / cart",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Rebuy admin > Smart Cart and widget settings. Custom CSS/JS fields can reach styling but not the bundle. Reduce enabled widgets per template before escalating to Rebuy support.",
+   "perf_notes": "Large bundle plus per-widget API fetches. Commonly the biggest third-party blocking chunk on PDP and cart. Each additional widget is another render pass."
+  },
+  {
+   "match": [
+    "okendo.io",
+    "okendo.reviews"
+   ],
+   "entity": "Okendo",
+   "app": "Okendo Reviews",
+   "category": "reviews",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Okendo admin > widget settings. Defer the reviews widget below the fold; the star-rating snippet can stay above.",
+   "perf_notes": "Review media grids are a frequent LCP and CLS source when rendered above the fold without reserved space."
+  },
+  {
+   "match": [
+    "klaviyo.com",
+    "klaviyo-media.com"
+   ],
+   "entity": "Klaviyo",
+   "app": "Klaviyo",
+   "category": "email / popups",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Klaviyo > Signup Forms for popup timing. The onsite tracking script is embedded by the Klaviyo app block; delay non-critical forms rather than removing tracking.",
+   "perf_notes": "klaviyo.js plus form bundles. Popups that mount above the fold are a classic CLS culprit. Per-device visibility settings exist and are often misconfigured."
+  },
+  {
+   "match": [
+    "judge.me",
+    "judgeme"
+   ],
+   "entity": "Judge.me",
+   "app": "Judge.me Reviews",
+   "category": "reviews",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Judge.me admin > widget settings; lazy-load option exists. Widget placement is controlled by the theme app block.",
+   "perf_notes": "Review widget loads its own CSS. Reserve height in the theme to avoid CLS on hydration."
+  },
+  {
+   "match": [
+    "loox.io"
+   ],
+   "entity": "Loox",
+   "app": "Loox Reviews",
+   "category": "reviews",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Loox admin > display settings. Photo review galleries should be below the fold.",
+   "perf_notes": "Image-heavy galleries. A Loox photo above the fold will win LCP and it will be slow."
+  },
+  {
+   "match": [
+    "yotpo.com"
+   ],
+   "entity": "Yotpo",
+   "app": "Yotpo Reviews / Loyalty",
+   "category": "reviews / loyalty",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Yotpo admin. Loyalty and Reviews ship separate bundles; audit whether both are needed on every template.",
+   "perf_notes": "Historically one of the heaviest review bundles. Check whether it loads on collection pages where it is rarely needed."
+  },
+  {
+   "match": [
+    "stamped.io"
+   ],
+   "entity": "Stamped",
+   "app": "Stamped Reviews",
+   "category": "reviews",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Stamped admin > widget settings.",
+   "perf_notes": "Similar profile to Judge.me. Reserve widget height in theme."
+  },
+  {
+   "match": [
+    "privy.com",
+    "privy.io"
+   ],
+   "entity": "Privy",
+   "app": "Privy Popups",
+   "category": "popups",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Privy admin > campaign timing. Delay display until after LCP.",
+   "perf_notes": "Popup mount is a CLS and INP source. Trigger on scroll or delay, never immediately."
+  },
+  {
+   "match": [
+    "attentivemobile.com",
+    "attn.tv"
+   ],
+   "entity": "Attentive",
+   "app": "Attentive SMS",
+   "category": "SMS capture",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Attentive admin > creative settings. Script is embedded via app block or theme.liquid; confirm which before editing.",
+   "perf_notes": "Often injected directly into theme.liquid head by a past install. If so, ownership is theme and it can be moved to defer."
+  },
+  {
+   "match": [
+    "postscript.io"
+   ],
+   "entity": "Postscript",
+   "app": "Postscript SMS",
+   "category": "SMS capture",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Postscript admin. Same head-injection caveat as Attentive."
+  },
+  {
+   "match": [
+    "rechargepayments.com",
+    "rechargecdn.com",
+    "rechargeapps.com"
+   ],
+   "entity": "Recharge",
+   "app": "Recharge Subscriptions",
+   "category": "subscriptions",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Recharge admin. Widget only belongs on subscription-eligible PDPs; check it is not loading store-wide.",
+   "perf_notes": "Subscription widget hydration shifts the PDP buy box. Reserve space."
+  },
+  {
+   "match": [
+    "gorgias.chat",
+    "gorgias.com"
+   ],
+   "entity": "Gorgias",
+   "app": "Gorgias Chat",
+   "category": "support chat",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Gorgias admin > chat settings. Enable deferred loading so the launcher mounts after page load.",
+   "perf_notes": "Chat launchers are pure post-load cost when deferred, and a large TBT hit when not."
+  },
+  {
+   "match": [
+    "tidio.co",
+    "tidiochat.com"
+   ],
+   "entity": "Tidio",
+   "app": "Tidio Chat",
+   "category": "support chat",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Tidio admin > chat display settings."
+  },
+  {
+   "match": [
+    "swymrelay.com",
+    "swymstore"
+   ],
+   "entity": "Swym",
+   "app": "Swym Wishlist",
+   "category": "wishlist",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Swym admin. Wishlist buttons on collection grids multiply per-card JS cost."
+  },
+  {
+   "match": [
+    "smile.io"
+   ],
+   "entity": "Smile.io",
+   "app": "Smile.io Loyalty",
+   "category": "loyalty",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Smile admin > launcher settings. Defer launcher.",
+   "perf_notes": "Fixed-position launcher, loads on every template including checkout-adjacent pages."
+  },
+  {
+   "match": [
+    "nosto.com"
+   ],
+   "entity": "Nosto",
+   "app": "Nosto",
+   "category": "search / merchandising",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Nosto admin. Recommendation slots render client-side; reserve height to avoid CLS.",
+   "perf_notes": "Being migrated away from on some stores in favor of native search. Check whether it is still needed before optimizing it."
+  },
+  {
+   "match": [
+    "algolia.net",
+    "algolianet.com",
+    "algolia.com"
+   ],
+   "entity": "Algolia",
+   "app": "Algolia Search",
+   "category": "search",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Algolia dashboard plus the theme's InstantSearch embed. The embed is usually theme code, so partial theme ownership."
+  },
+  {
+   "match": [
+    "boostcommerce.net",
+    "boost-cdn",
+    "boostsd"
+   ],
+   "entity": "Boost",
+   "app": "Boost AI Search & Discovery",
+   "category": "search / filters",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Boost admin. Collection filter hydration is a common collection-page CLS source."
+  },
+  {
+   "match": [
+    "searchanise.com",
+    "searchserverapi.com"
+   ],
+   "entity": "Searchanise",
+   "app": "Searchanise (Snize)",
+   "category": "search",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Searchanise admin."
+  },
+  {
+   "match": [
+    "convermax.com"
+   ],
+   "entity": "Convermax",
+   "app": "Convermax YMM Fitment",
+   "category": "search / fitment",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Convermax admin. Fitment selectors above the fold block interaction; measure INP with the selector in view."
+  },
+  {
+   "match": [
+    "getshogun.com",
+    "shogun.com"
+   ],
+   "entity": "Shogun",
+   "app": "Shogun Page Builder",
+   "category": "page builder",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Fix route is the Shogun editor, not the theme. Pages built here are outside theme code entirely.",
+   "perf_notes": "Builder pages commonly ship unoptimized hero images and inline styles. Theme-side fixes will not apply."
+  },
+  {
+   "match": [
+    "pagefly.io"
+   ],
+   "entity": "PageFly",
+   "app": "PageFly Page Builder",
+   "category": "page builder",
+   "owner": "app",
+   "surface": "settings",
+   "route": "PageFly editor. Same caveat as Shogun."
+  },
+  {
+   "match": [
+    "gempages.net",
+    "gempages.com"
+   ],
+   "entity": "GemPages",
+   "app": "GemPages",
+   "category": "page builder",
+   "owner": "app",
+   "surface": "settings",
+   "route": "GemPages editor. Same caveat as Shogun."
+  },
+  {
+   "match": [
+    "loyaltylion.com"
+   ],
+   "entity": "LoyaltyLion",
+   "app": "LoyaltyLion",
+   "category": "loyalty",
+   "owner": "app",
+   "surface": "settings",
+   "route": "LoyaltyLion admin."
+  },
+  {
+   "match": [
+    "triplewhale.com"
+   ],
+   "entity": "Triple Whale",
+   "app": "Triple Whale",
+   "category": "attribution",
+   "owner": "analytics",
+   "surface": "settings",
+   "route": "Triple Whale pixel settings. Attribution pixels are a business decision, not purely a perf one; report cost and let the merchant weigh it."
+  },
+  {
+   "match": [
+    "getelevar.com",
+    "elevar"
+   ],
+   "entity": "Elevar",
+   "app": "Elevar",
+   "category": "attribution",
+   "owner": "analytics",
+   "surface": "settings",
+   "route": "Elevar admin / GTM container."
+  },
+  {
+   "match": [
+    "fera.ai"
+   ],
+   "entity": "Fera",
+   "app": "Fera Reviews",
+   "category": "reviews",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Fera admin."
+  },
+  {
+   "match": [
+    "vitals.co",
+    "appsolve"
+   ],
+   "entity": "Vitals",
+   "app": "Vitals",
+   "category": "bundle (multi-feature)",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Vitals admin. It bundles dozens of features behind one script; disabling unused modules is the highest-leverage fix.",
+   "perf_notes": "A single Vitals install can account for most third-party JS on a store. Audit which of its modules are actually in use."
+  },
+  {
+   "match": [
+    "tapcart.com"
+   ],
+   "entity": "Tapcart",
+   "app": "Tapcart",
+   "category": "mobile app",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Tapcart admin. Should not be loading on the web storefront at all in most configurations."
+  },
+  {
+   "match": [
+    "boldapps.net",
+    "boldcommerce.com"
+   ],
+   "entity": "Bold",
+   "app": "Bold Commerce",
+   "category": "pricing / options",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Bold admin. Legacy Bold installs often leave theme snippets behind after uninstall; grep the theme for bold- before assuming app ownership."
+  },
+  {
+   "match": [
+    "wisepops.com"
+   ],
+   "entity": "Wisepops",
+   "app": "Wisepops",
+   "category": "popups",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Wisepops admin > campaign timing."
+  },
+  {
+   "match": [
+    "justuno.com"
+   ],
+   "entity": "Justuno",
+   "app": "Justuno",
+   "category": "popups",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Justuno admin > campaign timing."
+  },
+  {
+   "match": [
+    "arttrk.com"
+   ],
+   "entity": "ArtTrk",
+   "app": "ArtTrk",
+   "category": "ad pixel",
+   "owner": "analytics",
+   "surface": "vendor",
+   "route": "Ad pixel. Negligible perf cost; do not spend a finding on it unless it is blocking."
+  },
+  {
+   "match": [
+    "ywxi.net"
+   ],
+   "entity": "TrustedSite",
+   "app": "TrustedSite (formerly McAfee SECURE)",
+   "category": "trust badge",
+   "owner": "app",
+   "surface": "settings",
+   "route": "TrustedSite admin, or uninstall. A floating trust badge is rarely worth its main-thread cost; measure the conversion claim against the measured delay before keeping it.",
+   "perf_notes": "Lighthouse's third-party-web database misattributes cdn.ywxi.net to 'Tencent'. Match on the hostname, not the reported entity name. Observed at 481ms main thread on a live store, the single largest third-party cost on that page."
+  },
+  {
+   "match": [
+    "rise-ai.com"
+   ],
+   "entity": "Rise.ai",
+   "app": "Rise.ai Gift Cards & Loyalty",
+   "category": "gift cards / store credit",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Rise.ai admin. Widget only needs to load on cart, checkout-adjacent and account pages, not store-wide."
+  },
+  {
+   "match": [
+    "verifypass.com"
+   ],
+   "entity": "VerifyPass",
+   "app": "VerifyPass",
+   "category": "ID verification",
+   "owner": "app",
+   "surface": "settings",
+   "route": "VerifyPass admin. Only needed on pages offering the gated discount; store-wide loading is usually a misconfiguration."
+  },
+  {
+   "match": [
+    "dailykarma"
+   ],
+   "entity": "DailyKarma",
+   "app": "DailyKarma",
+   "category": "charity / donations",
+   "owner": "app",
+   "surface": "settings",
+   "route": "DailyKarma admin. Cart-scoped in most configurations."
+  },
+  {
+   "match": [
+    "instant.one"
+   ],
+   "entity": "Instant",
+   "app": "Instant Page Builder",
+   "category": "page builder",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Instant editor. Builder-owned pages are outside theme code; theme-side fixes will not apply.",
+   "perf_notes": "Ships a large bundle with long cache-lifetime problems. Observed at 266KB with 181KB of it re-fetched due to short max-age."
+  },
+  {
+   "match": [
+    "alia-prod.com",
+    "aliapopups.com"
+   ],
+   "entity": "Alia",
+   "app": "Alia Popups",
+   "category": "popup / email capture",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Alia app settings. Delay load until after page render; compress popup creative (a 210KB popup image observed on one store). Backend at backend.alia-prod.com.",
+   "perf_notes": "Observed 532ms main thread + 691KB on a store PDP 2026-08-18."
+  },
+  {
+   "match": [
+    "qscripts.s3.amazonaws.com",
+    "xp2023-pix.s3.amazonaws.com"
+   ],
+   "entity": "Paramount Pixel",
+   "app": "Paramount Pixel (ad attribution, qbit tracker)",
+   "category": "ad attribution pixel",
+   "owner": "app",
+   "surface": "vendor",
+   "route": "Vendor ticket or app removal. pscript.js loads synchronously in head (render-blocking ~1s under throttle) and the snippet injects a literal second <title>Paramount Pixel</title> into every page. Confirm the pixel is still in use before anything else.",
+   "perf_notes": "Identified on one store 2026-08-18 by the adjacent qbit('event','site_visit') inline snippet."
+  },
+  {
+   "match": [
+    "config-security.com"
+   ],
+   "entity": "Triple Whale",
+   "app": "Triple Whale (Triple Pixel)",
+   "category": "analytics / attribution",
+   "owner": "analytics",
+   "surface": "settings",
+   "route": "Triple Whale app. api.config-security.com is their pixel endpoint (preconnect injected by the triple_pixel_snippet app block).",
+   "perf_notes": ""
+  },
+  {
+   "match": [
+    "blackcrow.ai"
+   ],
+   "entity": "Black Crow AI",
+   "app": "Black Crow AI",
+   "category": "analytics / prediction",
+   "owner": "analytics",
+   "surface": "settings",
+   "route": "Black Crow AI app embed (shopify-init.blackcrow.ai loader). Async already; cost is usually small.",
+   "perf_notes": ""
+  },
+  {
+   "match": [
+    "govx.com"
+   ],
+   "entity": "GovX ID",
+   "app": "GovX ID (military/first-responder verification)",
+   "category": "discount verification",
+   "owner": "app",
+   "surface": "settings",
+   "route": "GovX ID app settings; loader at id-shop.govx.com. Small footprint.",
+   "perf_notes": ""
+  },
+  {
+   "match": [
+    "media.9gtb.com"
+   ],
+   "entity": "9gtb.com loader",
+   "app": null,
+   "category": "unidentified",
+   "owner": "unknown",
+   "surface": "none",
+   "route": "Unidentified. Injected via Shopify script tag on one store (loader.js?g_cvt_id=...&shop=...). Identify the owning app in the store admin before recommending anything.",
+   "perf_notes": ""
+  }
+ ],
+ "analytics_and_payment": [
+  {
+   "match": [
+    "googletagmanager.com",
+    "google-analytics.com",
+    "analytics.google.com"
+   ],
+   "entity": "Google Tag Manager / GA",
+   "owner": "analytics",
+   "surface": "settings",
+   "route": "GTM container. The container itself is cheap; its tags are not. Audit tag count and firing triggers in GTM, not in the theme.",
+   "perf_notes": "GTM is frequently blamed for cost that belongs to the tags inside it. Name the tags before recommending removal."
+  },
+  {
+   "match": [
+    "connect.facebook.net",
+    "facebook.com",
+    "facebook.net"
+   ],
+   "entity": "Meta Pixel",
+   "owner": "analytics",
+   "surface": "settings",
+   "route": "Shopify > Settings > Customer events, or the Meta sales channel. Prefer the server-side Conversions API where the merchant already has it."
+  },
+  {
+   "match": [
+    "analytics.tiktok.com",
+    "tiktok.com"
+   ],
+   "entity": "TikTok Pixel",
+   "owner": "analytics",
+   "surface": "settings",
+   "route": "TikTok sales channel or Customer events."
+  },
+  {
+   "match": [
+    "clarity.ms"
+   ],
+   "entity": "Microsoft Clarity",
+   "owner": "analytics",
+   "surface": "settings",
+   "route": "Clarity project settings. Session recording has real INP cost; sample rather than record everything."
+  },
+  {
+   "match": [
+    "hotjar.com",
+    "hotjar.io"
+   ],
+   "entity": "Hotjar",
+   "owner": "analytics",
+   "surface": "settings",
+   "route": "Hotjar site settings. Same sampling advice as Clarity."
+  },
+  {
+   "match": [
+    "klarna.com"
+   ],
+   "entity": "Klarna",
+   "owner": "payment",
+   "surface": "vendor",
+   "route": "Payment messaging widget. Usually low priority and not merchant-actionable."
+  },
+  {
+   "match": [
+    "afterpay.com",
+    "squarecdn.com"
+   ],
+   "entity": "Afterpay",
+   "owner": "payment",
+   "surface": "vendor",
+   "route": "Payment messaging widget. Low priority."
+  },
+  {
+   "match": [
+    "sezzle.com"
+   ],
+   "entity": "Sezzle",
+   "owner": "payment",
+   "surface": "vendor",
+   "route": "Payment messaging widget. Low priority."
+  },
+  {
+   "match": [
+    "paypal.com",
+    "paypalobjects.com"
+   ],
+   "entity": "PayPal",
+   "owner": "payment",
+   "surface": "vendor",
+   "route": "Express checkout buttons. Shopify-managed on most plans; not merchant-actionable."
+  }
+ ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "kgelster-cwv",
+  "description": "Core Web Vitals auditing for Shopify stores as an agent skill: field-first prioritization, Lighthouse with a measured noise band, theme-vs-app cost attribution, and fix verification on an unpublished theme.",
+  "owner": {
+    "name": "Kurt Elster"
+  },
+  "plugins": [
+    {
+      "name": "cwv-audit",
+      "source": "./",
+      "description": "Core Web Vitals audits for Shopify storefronts: CrUX field triage, multi-run Lighthouse 13 in an isolated browser, third-party cost attributed to the owning Shopify app, scrolling CLS probe, and re-measurement on an unpublished theme.",
+      "category": "ecommerce",
+      "tags": [
+        "shopify",
+        "performance",
+        "core-web-vitals",
+        "pagespeed",
+        "lighthouse",
+        "crux",
+        "lcp",
+        "cls",
+        "inp",
+        "agent-skills"
+      ]
+    }
+  ]
+}

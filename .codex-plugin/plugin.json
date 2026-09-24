@@ -1,0 +1,37 @@
+{
+  "name": "cwv-audit",
+  "description": "Core Web Vitals audits for Shopify stores: field-first prioritization, multi-run Lighthouse with a noise band, per-app third-party cost attribution, and fix verification on an unpublished theme",
+  "version": "1.0.0",
+  "author": {
+    "name": "Kurt Elster",
+    "url": "https://github.com/kgelster"
+  },
+  "homepage": "https://github.com/kgelster/ecom-cwv-audit",
+  "repository": "https://github.com/kgelster/ecom-cwv-audit",
+  "license": "MIT",
+  "keywords": [
+    "shopify",
+    "performance",
+    "core-web-vitals",
+    "lighthouse",
+    "pagespeed"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Ecom CWV Audit",
+    "shortDescription": "Find what is slowing a Shopify store down for real users, and who owns the fix.",
+    "longDescription": "Core Web Vitals audit for Shopify stores: CrUX field data decides which page to fix, multi-run Lighthouse 13 in an isolated browser explains why, every third-party cost is attributed to the Shopify app that owns it, a scrolling probe catches the CLS Lighthouse misses, and fixes are re-measured on an unpublished theme. Never publishes a theme.",
+    "developerName": "Kurt Elster",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/kgelster/ecom-cwv-audit",
+    "defaultPrompt": [
+      "Why is my Shopify store slow on mobile?",
+      "Which apps are costing us the most load time?",
+      "Did my theme change actually improve LCP?"
+    ]
+  }
+}
