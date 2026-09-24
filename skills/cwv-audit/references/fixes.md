@@ -143,6 +143,24 @@ also loads from a CDN.
 Shopify's guidance: keep minified theme JS bundles at 16KB or less, avoid
 third-party frameworks, prefer native browser features.
 
+## unused-javascript / bootup-time / total-byte-weight
+
+Legacy diagnostics, not insights, but still in Lighthouse 13.5 and the only
+audits that name individual bundles. Each evidence row is already attributed to
+an owner; route by that owner, not by the audit.
+
+- A `googletagmanager.com` row is a tag-count problem in the GTM container, not
+  a GTM problem. Several `gtag/js?id=AW-...` rows mean one Ads tag per
+  conversion account, each shipping the full gtag library.
+- A `/cdn/shop/t/<id>/assets/` row is theme JS. Check whether it loads on every
+  template when one template uses it (a slider library on the home page only).
+- The page URL itself as a row is inline `<script>` in the HTML. That is theme
+  code or an app embed injected through `theme.liquid`; read the rendered source
+  to tell which.
+- `Unattributable` in `bootup-time` is CPU the trace could not tie to a script
+  URL. Do not assign it an owner.
+- `bootup-time` overlaps `third-parties-insight`. Do not add the two together.
+
 ## dom-size-insight / slow-css-selector-insight / forced-reflow-insight
 
 Responsiveness, not load. These matter for INP, which this scan cannot measure -

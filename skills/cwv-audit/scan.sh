@@ -153,4 +153,36 @@ fi
 if [ "$produced" -lt "$expected" ]; then
   echo "WARN $((expected - produced)) run(s) failed; merge will mark affected URLs UNSCANNED" >&2
 fi
+
+# Record how fast this host was. Lighthouse measures environment.benchmarkIndex
+# every run and warns below 1000: a slow or busy machine stacks on top of the
+# simulated 4x CPU throttle and drags TBT, LCP and the score down. Keeping it in
+# scan-meta.json makes a baseline taken on a loaded laptop visible later.
+python3 - "$OUTDIR" <<'PY' || echo "WARN could not record benchmark_index in scan-meta.json" >&2
+import glob, json, os, statistics, sys
+out = sys.argv[1]
+vals = []
+for p in glob.glob(os.path.join(out, "lh-*.json")):
+    try:
+        with open(p) as fh:
+            doc = json.load(fh)
+    except Exception:
+        continue
+    if doc.get("runtimeError"):
+        continue
+    b = (doc.get("environment") or {}).get("benchmarkIndex")
+    if isinstance(b, (int, float)):
+        vals.append(b)
+meta_path = os.path.join(out, "scan-meta.json")
+with open(meta_path) as fh:
+    meta = json.load(fh)
+if vals:
+    meta["benchmark_index"] = {"median": round(statistics.median(vals)),
+                               "min": round(min(vals)), "max": round(max(vals))}
+    if min(vals) < 1000:
+        print(f"WARN slow host: benchmarkIndex {round(min(vals))} < 1000; "
+              "results read worse than a real device", file=sys.stderr)
+with open(meta_path, "w") as fh:
+    json.dump(meta, fh, indent=2)
+PY
 echo "Next: python3 merge_findings.py $OUTDIR" >&2

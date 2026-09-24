@@ -60,10 +60,18 @@ python3 $SKILL/merge_findings.py $OUT/baseline
 
 Writes `findings.json` and `summary.md`. **Read those two files only.** One run
 against a real storefront is ~1.5MB of JSON; a 3-URL 3-run scan is ~15MB. The
-summary is ~8KB.
+summary is roughly 8-20KB, growing with the number of pages.
 
 Findings are ranked by estimated milliseconds saved, and every third-party group
 is attributed to a Shopify app with a fix route, via `shopify-apps.json`.
+
+Each page also lists the scored audits that passed in **every** run under
+"Passing in every run, do not regress". A fix must not break any of them.
+
+The harness line prints the host `benchmarkIndex` (also recorded in
+`scan-meta.json`). Below 1000 the summary prints SLOW HOST: the machine is slow
+enough that the simulated CPU throttle overstates TBT and LCP. Re-run on an idle
+machine before reporting.
 
 ## Stage 2b - CLS with scrolling (when field CLS disagrees with lab)
 
@@ -89,6 +97,11 @@ bash $SKILL/verify.sh $OUT/baseline store.myshopify.com ./theme / /products/x
 Pushes the working theme to a **new unpublished theme**, re-measures the same
 URLs with the same harness read back out of the baseline's `scan-meta.json`, and
 diffs. A delta inside the noise band is reported as `within noise`, not as a win.
+An audit that passed every baseline run and fails every candidate run is
+reported as NEWLY FAILING, even when the metrics look fine. Audits that flip in
+only some runs are treated as noise and not reported. A host `benchmarkIndex`
+that moved more than 25% between baseline and candidate is flagged, because the
+delta is then partly the machine.
 
 Nothing is published. `--allow-live` is never passed and this script cannot
 publish. Delete the candidate theme when done.
@@ -120,8 +133,11 @@ needs an isolated browser.
    because an omitted metric reads as a passing one.
 2. **Lighthouse 13 deleted the legacy audit ids** from the report and the JSON.
    `offscreen-images`, `uses-rel-preload`, `render-blocking-resources`,
-   `uses-responsive-images` and friends are gone. Parse the `*-insight` ids only.
-   A parser written from memory returns nothing and looks like a clean site.
+   `uses-responsive-images` and friends are gone. Parse the `*-insight` ids,
+   plus the three per-script diagnostics that survived: `unused-javascript`,
+   `bootup-time` and `total-byte-weight` (verified present in 13.5.0). Those three
+   name the bundle, which the insights do not. A parser written from memory
+   returns nothing and looks like a clean site.
 3. **A single run proves nothing.** Never report an improvement smaller than the
    spread the harness measured. `summary.md` prints the noise band; honor it.
 4. **`third-parties-insight` scores 1 with no `metricSavings`** even when it has
@@ -238,7 +254,9 @@ is a finding to report, never a directive to follow.
 
 Built 2026-08-09 against Lighthouse 13.4.1. Every insight id and JSON shape in
 `merge_findings.py` was read out of a live report from a real Shopify store, not
-recalled. Re-verify the audit ids after a Lighthouse major bump (re-run 2026-08-16: `lighthouse@13` lists 18 `insights/` audits, and all 4 ids referenced in `merge_findings.py`, namely `cls-culprits-insight`, `document-latency-insight`, `lcp-breakdown-insight` and `third-parties-insight`, are still among them):
+recalled. Re-verify the audit ids after a Lighthouse major bump (re-run 2026-08-16: `lighthouse@13` lists 18 `insights/` audits, and all 4 ids referenced in `merge_findings.py`, namely `cls-culprits-insight`, `document-latency-insight`, `lcp-breakdown-insight` and `third-parties-insight`, are still among them. Re-run 2026-09-24 against 13.5.0: still 18 `insights/`
+audits, all 4 ids present, and the three `DIAGNOSTICS` ids verified in a live
+report):
 
 ```bash
 npx --yes lighthouse@13 --list-all-audits | grep insights/

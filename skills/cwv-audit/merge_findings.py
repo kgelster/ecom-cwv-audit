@@ -13,7 +13,12 @@ Written against Lighthouse 13 INSIGHT audits. Lighthouse 13 removed the legacy
 audit ids (offscreen-images, uses-rel-preload, render-blocking-resources, ...)
 from the report AND from the JSON, so a parser written from memory silently
 finds nothing and reports a clean site. Every id below was read out of a real
-13.4.1 report, not recalled.
+13.4.1 report, not recalled, and re-checked against 13.5.0.
+
+Three non-insight diagnostics survived the cut and still carry per-script
+evidence no insight reports: unused-javascript, bootup-time and
+total-byte-weight. They are parsed by id (DIAGNOSTICS) and every row is
+attributed to the app that shipped the script.
 
 Stdlib only. No pip installs.
 
@@ -48,6 +53,18 @@ METRICS = {
 }
 
 SEVERITY_MS = ((500, "P0"), (150, "P1"))   # by estimated savings
+
+# Legacy (non-insight) audits still emitted by Lighthouse 13.5 whose rows are
+# per-script. Parsed by exact id; everything else legacy is ignored.
+DIAGNOSTICS = ("unused-javascript", "bootup-time", "total-byte-weight")
+
+# Lighthouse's own pass line. Used for the do-not-regress list.
+PASS_SCORE = 0.9
+SCORED_MODES = ("binary", "numeric", "metricSavings")
+
+# Lighthouse warns about a slow host below this benchmarkIndex
+# (core/gather/driver/environment.js, SLOW_CPU_BENCHMARK_INDEX_THRESHOLD).
+SLOW_HOST_BENCHMARK = 1000
 
 
 def rate(label: str, value) -> str:
@@ -215,6 +232,55 @@ def ex_table(audit, cols=("url", "wastedBytes", "wastedMs", "totalBytes")):
     return audit.get("title", "issue"), ev
 
 
+def diagnostic_finding(audit_id, audit, apps, page_url=""):
+    """Per-script diagnostic with each row attributed to the owning app.
+
+    unused-javascript and bootup-time name the exact bundle, which is what turns
+    'too much JS' into 'GTM container X ships 93KB it never runs'. Rows are
+    already sorted by Lighthouse, heaviest first.
+    """
+    rows = ((audit.get("details") or {}).get("items") or [])
+    ev, owners = [], set()
+    for row in rows[:MAX_NODES]:
+        url = str(row.get("url") or "")
+        if audit_id == "unused-javascript":
+            cost = (f"{round((row.get('wastedBytes') or 0) / 1024)}KB unused "
+                    f"of {round((row.get('totalBytes') or 0) / 1024)}KB")
+        elif audit_id == "bootup-time":
+            cost = (f"{round(row.get('total') or 0)}ms CPU "
+                    f"({round(row.get('scripting') or 0)}ms eval, "
+                    f"{round(row.get('scriptParseCompile') or 0)}ms parse)")
+        else:
+            cost = f"{round((row.get('totalBytes') or 0) / 1024)}KB"
+        if page_url and url.split("?")[0].rstrip("/") == page_url.split("?")[0].rstrip("/"):
+            # Inline <script> in the HTML. Could be theme code or an app embed
+            # injected through theme.liquid; the URL alone cannot say which.
+            who = "inline scripts in the HTML document [theme or app embed]"
+            owners.add("unknown")
+        elif url.startswith("http"):
+            attr = attribute([url], "", apps)
+            who = f"{attr['app']} [{attr['owner']}]"
+            owners.add(attr["owner"])
+        else:
+            who = "not attributable to a URL"
+            owners.add("unknown")
+        ev.append(f"{url[:110] or '(no url)'} | {cost} | {who}")
+    extra = len(rows) - MAX_NODES
+    if extra > 0:
+        ev.append(f"... and {extra} more")
+    sv = savings_ms(audit)
+    return {
+        "id": audit_id,
+        "title": audit.get("title", audit_id),
+        "headline": audit.get("displayValue") or audit.get("title", audit_id),
+        "severity": severity(sv, audit.get("score")),
+        "estimated_savings_ms": round(sv),
+        "score": audit.get("score"),
+        "owner": owners.pop() if len(owners) == 1 else "mixed",
+        "evidence": ev,
+    }
+
+
 EXTRACTORS = {
     "lcp-breakdown-insight": ex_lcp_breakdown,
     "cls-culprits-insight": ex_cls_culprits,
@@ -320,6 +386,13 @@ def summarise_url(url, docs):
                 "a scripted interaction trace via chrome-devtools-mcp.",
     }
 
+    out["audit_states"] = audit_states(docs)
+    bench = [(d.get("environment") or {}).get("benchmarkIndex") for d in docs]
+    bench = [b for b in bench if isinstance(b, (int, float))]
+    if bench:
+        out["benchmark_index"] = {"median": round(statistics.median(bench)),
+                                  "min": round(min(bench)), "max": round(max(bench))}
+
     # Findings come from the median-scoring run so evidence matches the numbers.
     ranked_docs = sorted(
         docs, key=lambda d: (d.get("categories", {}).get("performance") or {}).get("score") or 0)
@@ -327,6 +400,10 @@ def summarise_url(url, docs):
     apps = load_apps()
 
     for audit_id, audit in sorted((ref.get("audits") or {}).items()):
+        if audit_id in DIAGNOSTICS:
+            if audit.get("score") is not None and audit["score"] < 1:
+                out["findings"].append(diagnostic_finding(audit_id, audit, apps, url))
+            continue
         if not audit_id.endswith("-insight"):
             continue
         score = audit.get("score")
@@ -365,6 +442,29 @@ def summarise_url(url, docs):
     _check_lcp_consistency(out)
     out["findings"].sort(key=lambda f: (-f.get("estimated_savings_ms", 0), f.get("severity", "P3")))
     return out
+
+
+def audit_states(docs):
+    """Scored audits that pass in every run, and that fail in every run.
+
+    An audit that passes in some runs and fails in others is noise at this run
+    count, so it is in neither list. That keeps the regression check in
+    compare_dirs from reporting a threshold wobble as a regression.
+    """
+    per_id = {}
+    for d in docs:
+        for audit_id, a in (d.get("audits") or {}).items():
+            if a.get("scoreDisplayMode") not in SCORED_MODES:
+                continue
+            s = a.get("score")
+            if not isinstance(s, (int, float)):
+                continue
+            per_id.setdefault(audit_id, []).append(s >= PASS_SCORE)
+    runs = len(docs)
+    return {
+        "passing": sorted(i for i, v in per_id.items() if len(v) == runs and all(v)),
+        "failing": sorted(i for i, v in per_id.items() if len(v) == runs and not any(v)),
+    }
 
 
 def _check_lcp_consistency(out):
@@ -442,6 +542,16 @@ def render(result, compare=None) -> str:
     L += [f"Harness: lighthouse@{meta.get('lighthouse_major', '?')}, "
           f"{meta.get('runs_per_url', '?')} runs/URL, {meta.get('form_factor', '?')}, "
           f"isolated Chrome.", ""]
+    bench = [p["benchmark_index"] for p in result["pages"] if p.get("benchmark_index")]
+    if bench:
+        lo, hi = min(b["min"] for b in bench), max(b["max"] for b in bench)
+        L += [f"Host benchmarkIndex: {lo}-{hi}.", ""]
+        if lo < SLOW_HOST_BENCHMARK:
+            L += [f"> SLOW HOST: benchmarkIndex fell to {lo}, under Lighthouse's own "
+                  f"{SLOW_HOST_BENCHMARK} warning line. The simulated 4x CPU throttle is "
+                  "applied on top of an already slow machine, so TBT, LCP and the score read "
+                  "worse than a real mid-range phone. Re-run on an idle machine before "
+                  "reporting these numbers.", ""]
 
     if result["unscanned"]:
         L += ["## UNSCANNED", "",
@@ -486,6 +596,11 @@ def render(result, compare=None) -> str:
                     L.append(f"  | {g['app']} | {g['owner']} | {g['main_thread_ms']}ms "
                              f"| {g['transfer_kb']}KB | {route} |")
             L.append("")
+
+        passing = (page.get("audit_states") or {}).get("passing") or []
+        if passing:
+            L += [f"### Passing in every run ({len(passing)}), do not regress", "",
+                  ", ".join(f"`{i}`" for i in passing), ""]
 
     if compare:
         L += ["", "## Before / after", ""] + compare
@@ -545,6 +660,26 @@ def compare_dirs(candidate, baseline_dir):
             verdict = (f"within noise (±{band})" if abs(d) <= band
                        else ("IMPROVED" if d > 0 else "REGRESSED"))
             lines.append(f"- score: {bs['median']} -> {cs['median']} ({'+' if d > 0 else ''}{d}) {verdict}")
+
+        # Pass/fail flips. Only audits that were stable in every run on both
+        # sides count, so a threshold wobble is not reported as a regression.
+        b_st, c_st = match.get("audit_states") or {}, page.get("audit_states") or {}
+        newly_failing = sorted(set(b_st.get("passing", [])) & set(c_st.get("failing", [])))
+        newly_passing = sorted(set(b_st.get("failing", [])) & set(c_st.get("passing", [])))
+        for audit_id in newly_failing:
+            note = (" (preview URL: check trap 13 before blaming the theme)"
+                    if is_preview else "")
+            lines.append(f"- `{audit_id}`: passed every baseline run, fails every "
+                         f"candidate run. NEWLY FAILING{note}")
+        for audit_id in newly_passing:
+            lines.append(f"- `{audit_id}`: failed every baseline run, passes every "
+                         f"candidate run. NOW PASSING")
+
+        bb, cb = match.get("benchmark_index"), page.get("benchmark_index")
+        if bb and cb and abs(cb["median"] - bb["median"]) > 0.25 * bb["median"]:
+            lines.append(f"- host benchmarkIndex moved {bb['median']} -> {cb['median']} "
+                         "(more than 25%). Part of any delta above is the machine, not "
+                         "the theme. Re-measure both sides in one session.")
         lines.append("")
     return lines, matched
 
@@ -595,6 +730,10 @@ def main() -> int:
           f"{round(os.path.getsize(fj) / 1024)}KB findings.json", file=sys.stderr)
     if unscanned:
         print(f"WARN {len(unscanned)} URL(s) UNSCANNED and reported as Undetermined", file=sys.stderr)
+    flips = sum("NEWLY FAILING" in line for line in (cmp_lines or []))
+    if flips:
+        print(f"WARN {flips} audit(s) NEWLY FAILING against the baseline; see summary.md",
+              file=sys.stderr)
     print(f"Read {sm} and {fj}. Do not read the lh-*.json files.", file=sys.stderr)
 
     # A comparison that matched nothing produced no evidence either way. Exiting

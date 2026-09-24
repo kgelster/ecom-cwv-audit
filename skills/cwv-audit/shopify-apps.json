@@ -2,12 +2,14 @@
  "_comment": "Third-party network entity -> Shopify app -> fix route. Used by merge_findings.py to attribute Lighthouse third-parties-insight rows. Matching is substring-on-hostname, most specific match wins. Seeded from ecom-a11y-audit/skills/a11y-audit/references/shopify-attribution.md, remapped from CSS selectors to script hostnames because third-parties-insight keys on network entities, not DOM.",
  "_owner_values": "theme | app | shopify | analytics | payment | unknown",
  "_surface_values": "settings (app has a config/custom-CSS field that can reach it) | vendor (only the vendor can change it) | theme (merchant controls the embed) | none",
- "version": "2026-08-09",
+ "version": "2026-09-24",
  "first_party": [
   {
    "match": [
     "cdn.shopify.com",
-    "shopifycdn.net"
+    "shopifycdn.net",
+    "/cdn/shop/t/",
+    "/cdn/shop/files/"
    ],
    "entity": "Shopify CDN",
    "owner": "theme",
@@ -19,7 +21,9 @@
    "match": [
     "monorail-edge.shopifysvc.com",
     "shopify.com/api",
-    "shop.app"
+    "shop.app",
+    "/cdn/shopifycloud/",
+    "/cdn/wpm/"
    ],
    "entity": "Shopify Platform",
    "owner": "shopify",
