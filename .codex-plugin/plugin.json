@@ -1,7 +1,7 @@
 {
   "name": "cwv-audit",
   "description": "Core Web Vitals audits for Shopify stores: field-first prioritization, multi-run Lighthouse with a noise band, per-app third-party cost attribution, and fix verification on an unpublished theme",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": {
     "name": "Kurt Elster",
     "url": "https://github.com/kgelster"

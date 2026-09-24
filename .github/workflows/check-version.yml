@@ -1,0 +1,32 @@
+name: Check Version
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".claude-plugin/plugin.json"
+      - ".codex-plugin/plugin.json"
+      - "CHANGELOG.md"
+      - ".github/scripts/check_version.py"
+      - ".github/workflows/check-version.yml"
+  pull_request:
+    paths:
+      - ".claude-plugin/plugin.json"
+      - ".codex-plugin/plugin.json"
+      - "CHANGELOG.md"
+      - ".github/scripts/check_version.py"
+      - ".github/workflows/check-version.yml"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Manifests and CHANGELOG agree on the version
+        run: python3 .github/scripts/check_version.py

@@ -1,6 +1,6 @@
 {
   "name": "cwv-audit",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Core Web Vitals audits for Shopify stores: ranks work off CrUX field data instead of whatever Lighthouse complains about loudest, measures with multi-run Lighthouse 13 in an isolated Chrome for Testing build and reports the noise band, compresses ~15MB of raw JSON to an ~8KB summary, attributes every third-party cost to the Shopify app that owns it with a fix route, catches scroll-triggered CLS that Lighthouse never sees, and re-measures a fix on an unpublished theme. Never publishes a theme. Never claims an INP result from a lab score.",
   "author": {
     "name": "Kurt Elster"

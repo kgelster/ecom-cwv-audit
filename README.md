@@ -64,6 +64,10 @@ npx skills add https://github.com/kgelster/ecom-cwv-audit --skill cwv-audit
 - **Ad-driven CLS cannot be reproduced locally.** Ad networks don't fill for headless browsers or datacenter IPs. Only the next CrUX window confirms an ad CLS fix, and the skill says so.
 - Checkout is Shopify-hosted and out of scope.
 
+## Versioning
+
+Semantic versioning, recorded in `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json` and tagged `vX.Y.Z` on GitHub. Every release gets an entry in [`CHANGELOG.md`](CHANGELOG.md). A major bump means a report consumer has to change: a renamed `findings.json` field, a removed stage, or a changed exit code. A minor bump adds findings or checks. A patch fixes behavior without changing the output shape. CI fails when the two manifests and the top changelog entry disagree.
+
 ## License
 
 MIT
