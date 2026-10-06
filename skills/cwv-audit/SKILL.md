@@ -32,6 +32,15 @@ only from a lab trace.
 `insufficient-data` means CrUX has no sample. That is **Undetermined**, never a
 pass. Say so in the report.
 
+Then find the suspect phase before opening a lab tool (Shopify's metric-gap
+method). Per page type and device, at the same percentile: TTFB, then FCP minus
+TTFB, then LCP minus FCP. The largest gap is the phase to reproduce in stage 1.
+Slow TTFB points at Liquid, a proxy, or app server work. Fast TTFB with slow FCP
+points at render-blocking CSS/JS, resources below `content_for_header`,
+anti-flicker snippets, or stylesheet count. Fast FCP with slow LCP points at LCP
+discovery or reveal. All three slow points at one shared cause (proxy, sitewide
+script); audit what every template loads first. See `references/theme-rules.md`.
+
 Optional `--shop store.myshopify.com --token-env SOME_TOKEN` probes Shopify's own
 RUM, which is segmented by page type and beats CrUX for a store. It is gated: see
 `references/field-data.md`.
@@ -45,8 +54,10 @@ FORM_FACTOR=desktop bash $SKILL/scan.sh $OUT/d <urls>
 ```
 
 Default URL set for a Shopify store is the three templates Shopify's own speed
-score weights: `[(product x 31) + (collection x 33) + (home x 13)] / 77`. Add
-anything stage 0 flagged. Sample from the sitemap; never crawl a storefront.
+score weights: collection 43%, product 40%, home 17%. The Theme Store bar is a
+different number: a plain average of the three, at least 60, on both mobile and
+desktop. Use the weighted score to rank work and the plain average only for a
+Theme Store question. Add anything stage 0 flagged. Sample from the sitemap; never crawl a storefront.
 
 Three runs per URL by default, because a single Lighthouse run varies by roughly
 5-10 points. The browser is an isolated Chrome for Testing build, never the
@@ -97,6 +108,7 @@ bash $SKILL/verify.sh $OUT/baseline store.myshopify.com ./theme / /products/x
 Pushes the working theme to a **new unpublished theme**, re-measures the same
 URLs with the same harness read back out of the baseline's `scan-meta.json`, and
 diffs. A delta inside the noise band is reported as `within noise`, not as a win.
+Read traps 13 and 14 before trusting any delta from this stage.
 An audit that passed every baseline run and fails every candidate run is
 reported as NEWLY FAILING, even when the metrics look fine. Audits that flip in
 only some runs are treated as noise and not reported. A host `benchmarkIndex`
@@ -205,6 +217,25 @@ needs an isolated browser.
     **control** theme from unmodified `main`, `scan.sh` both preview URL sets,
     and compare candidate to control, preview to preview. Delete both themes
     afterwards.
+14. **Preview themes are not streamed; live pages usually are.** Shopify streams
+    JSON-template pages in two parts: the layout up to `{{ content_for_header }}`
+    first, the sections when they finish rendering. Preview themes, the preview
+    bar, and the theme editor are never streamed. This is a second reason
+    preview-vs-live misleads, and the trap 13 control run cancels it too, since
+    both sides are previews. What no preview can show is the gain from moving
+    resources above `content_for_header`. Report that result as Undetermined,
+    then confirm after publish or in the next field window.
+15. **On a streamed page, TTFB measures the head, not the Liquid.** The first byte
+    is the top of `<head>`; section render time lands in the document's content
+    download. A good `server-response-time` audit does not clear Liquid. To judge
+    a Liquid change, compare the document request's total duration (DevTools
+    Timing tab or the WebPageTest bar), or profile it in Theme Inspector for
+    Chrome. In field data, streaming lowered TTFB for every store on its own;
+    that drop is the platform's, not the theme's.
+16. **Early Hints are missing on the first hit after a publish.** Shopify only
+    sends its automatic 103 preloads once it has served the page. One reload of a
+    just-edited theme understates the result. `scan.sh` warms each URL first;
+    keep that step.
 
 ## Ownership decides the fix route
 
@@ -219,8 +250,9 @@ vendor.
 
 Theme-owned findings route to `references/fixes.md` for the insight-to-fix
 mapping, and to `references/theme-rules.md` for Shopify's own theme rule
-catalog - Liquid render cost, image filters, stylesheet count, section loading,
-and the Theme Check rules that catch several of these without a scan.
+catalog - Liquid render cost, `content_for_header` ordering and streaming, image
+filters, stylesheet count, section loading, fonts, resource hints, and the Theme
+Check rules that catch several of these without a scan.
 
 ## Grading
 
@@ -267,6 +299,6 @@ Addy Osmani's `web-quality-skills` (MIT) for that layer:
 `npx skills add addyosmani/web-quality-skills`.
 
 References: `references/fixes.md` (insight id to Shopify theme fix),
-`references/theme-rules.md` (Shopify's theme performance rule catalog, read
-2026-08-18), `references/field-data.md` (CrUX and Shopify RUM query shapes and
+`references/theme-rules.md` (Shopify's theme performance rule catalog, re-read
+2026-10-06), `references/field-data.md` (CrUX and Shopify RUM query shapes and
 gates), `references/attribution.md` (theme vs app ownership).

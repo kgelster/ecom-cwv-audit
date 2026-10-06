@@ -114,6 +114,24 @@ and the report should say so.
 
 ### Operator path without the API
 
+### Unstable alternative: `performanceMetrics` / `performanceEvents`
+
+Documented on shopify.dev (read 2026-10-06), not yet tested here. Two root fields
+on the **`unstable`** Admin API version only; Shopify says they can change or
+disappear without notice, so never build a recurring report on them.
+`performanceMetrics(aggregationLevel: DAILY, deviceTypes: [MOBILE], maxDays: 30)`
+returns RUM per device type, with no page-type dimension.
+`performanceEvents(maxDays: 30)` returns app installs and theme publishes, which
+is the cheapest way to line a regression up with its cause. Both need themes and
+reports access. If `shopifyqlQuery` is gated and a one-off timeline is needed,
+try this before falling back to the admin UI.
+
+### Streaming moved TTFB for everyone
+
+Shopify now streams most storefront HTML, which lowers field TTFB on its own. A
+TTFB improvement across that rollout window is the platform's, not the theme's.
+Judge theme work on FCP and LCP alongside TTFB.
+
 The Web Performance dashboard is visible in the Shopify admin under Online Store
 > Themes, with per-metric "over time" reports and a ShopifyQL query editor. If
 the API gate is closed and the number is needed once, read it there rather than

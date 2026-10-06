@@ -17,10 +17,17 @@ Four phases. Shopify's target allocation, from the Chrome DevTools LCP skill:
 TTFB ~40%, resource load delay <10%, resource load duration ~40%, element render
 delay <10%.
 
-- **TTFB high** on Shopify is rarely the theme. Shopify's edge usually returns in
+- **TTFB high** on Shopify is rarely the edge. Shopify's edge usually returns in
   under 100ms; a slow TTFB means an app doing server-side work, a redirect chain,
-  or a Liquid loop over a large collection. Check `document-latency-insight`
-  first for redirects.
+  a request proxy, or expensive Liquid. Check `document-latency-insight` first
+  for redirects. On a streamed page the reverse also holds: a **low** TTFB does
+  not clear Liquid, because the first byte is only the layout head. Section
+  render time shows in the document's download time and in FCP. See trap 15 in
+  `SKILL.md`.
+- **TTFB fine, LCP late, document download long** means the sections are slow to
+  render, not the transfer. Storefront HTML is a few hundred KB; a document that
+  takes a second or more to finish on a normal connection is waiting on Liquid.
+  Profile with Theme Inspector for Chrome.
 - **Resource load delay high** means the browser found the LCP image late. The
   image is being set by JS, is inside a lazy-loaded section, or lacks a
   discoverable `src`. Fix: render the hero image server-side in Liquid with a
@@ -80,6 +87,13 @@ Almost always theme-owned and almost always the cheapest large win.
 
 ## render-blocking-insight
 
+First check where the blocking stylesheet sits relative to
+`{{ content_for_header }}` in `layout/theme.liquid`. Below the tag, a streamed
+page cannot request it until every section has rendered. Moving it above the tag
+does not remove it from this insight; it starts the download earlier. The ordering
+checks before any move are in `references/theme-rules.md`. This is a layout edit:
+confirm with the theme owner first.
+
 - Theme CSS in `<head>` is expected. App CSS in `<head>` usually is not.
 - `<script>` tags in sections should be `defer` or `type="module"`.
 - Third-party scripts belong at the end of `<body>` or `async`, never blocking in
@@ -94,6 +108,14 @@ Set `font-display: swap` on `@font-face`. Shopify's `font_face` filter takes it:
 ```liquid
 {{ settings.type_body_font | font_face: font_display: 'swap' }}
 ```
+
+`font_face` adds no `font-display` unless you pass one. The browser default is
+`auto`, which Chrome treats as `block`: text stays invisible for up to 3s. A
+`font_face` call without `font_display:` is a finding on its own.
+
+If swap then causes CLS, the fix is fallback metrics (`size-adjust` and the
+override descriptors) plus a unitless `line-height`, not a smaller font file. See
+`references/theme-rules.md`.
 
 Preload only the one or two fonts used above the fold. Self-hosted fonts on the
 Shopify CDN beat Google Fonts and Typekit on connection cost.
