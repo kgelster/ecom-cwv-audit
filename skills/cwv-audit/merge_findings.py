@@ -58,6 +58,12 @@ SEVERITY_MS = ((500, "P0"), (150, "P1"))   # by estimated savings
 # per-script. Parsed by exact id; everything else legacy is ignored.
 DIAGNOSTICS = ("unused-javascript", "bootup-time", "total-byte-weight")
 
+# Same-URL repeats below this many KB (icons, beacons) are not reported.
+REPEAT_MIN_KB = 20
+REPEAT_TYPES = ("Script", "Stylesheet", "Image", "Font")
+# Video files below this many KB are not reported.
+VIDEO_MIN_KB = 500
+
 # Lighthouse's own pass line. Used for the do-not-regress list.
 PASS_SCORE = 0.9
 SCORED_MODES = ("binary", "numeric", "metricSavings")
@@ -407,6 +413,8 @@ def summarise_url(url, docs):
         docs, key=lambda d: (d.get("categories", {}).get("performance") or {}).get("score") or 0)
     ref = ranked_docs[len(ranked_docs) // 2]
     apps = load_apps()
+    out["weight"], out["main_thread"] = page_weight(ref)
+    out["repeat_fetches"], out["video_bytes"] = repeat_fetches(ref, apps)
 
     for audit_id, audit in sorted((ref.get("audits") or {}).items()):
         if audit_id in DIAGNOSTICS:
@@ -452,6 +460,60 @@ def summarise_url(url, docs):
     _check_lcp_consistency(out)
     out["findings"].sort(key=lambda f: (-f.get("estimated_savings_ms", 0), f.get("severity", "P3")))
     return out
+
+
+def page_weight(doc):
+    """Bytes and requests by resource type, and main-thread time by category.
+
+    Both are in every report (resource-summary, mainthread-work-breakdown) and
+    answer the first triage question faster than any insight: is this page
+    heavy because of media, images or script, and is the main thread busy
+    running script or doing layout and paint (a looping video, a carousel)?
+    """
+    audits = doc.get("audits") or {}
+    rs = ((audits.get("resource-summary") or {}).get("details") or {}).get("items") or []
+    weight = [{"type": i.get("resourceType"), "requests": i.get("requestCount") or 0,
+               "kb": round((i.get("transferSize") or 0) / 1024)} for i in rs]
+    mt = ((audits.get("mainthread-work-breakdown") or {}).get("details") or {}).get("items") or []
+    main = [{"group": i.get("groupLabel") or i.get("group"), "ms": round(i.get("duration") or 0)}
+            for i in mt]
+    return weight, main
+
+
+def repeat_fetches(doc, apps):
+    """The same URL downloaded more than once on one page, and video bytes per file.
+
+    duplicated-javascript-insight compares bundled modules, so one script URL
+    loaded twice by two integrations (an app block plus a leftover theme
+    snippet) passes it. Video arrives as playlist and segment requests with
+    different URLs, so it is grouped by file instead.
+    """
+    items = (((doc.get("audits") or {}).get("network-requests") or {}).get("details") or {}).get("items") or []
+    by_url, videos = {}, {}
+    for q in items:
+        url, kind = q.get("url") or "", q.get("resourceType")
+        size = q.get("transferSize") or 0
+        if kind == "Media":
+            v = videos.setdefault(url.split("?")[0].rsplit("/", 1)[0], [0, 0])
+            v[0] += 1
+            v[1] += size
+        elif kind in REPEAT_TYPES:
+            r = by_url.setdefault(url, [0, 0])
+            r[0] += 1
+            r[1] += size
+    repeats = []
+    for url, (times, size) in by_url.items():
+        if times >= 2 and size / 1024 >= REPEAT_MIN_KB:
+            attr = attribute([url], "", apps)
+            if attr["owner"] == "shopify":
+                continue           # web pixel sandboxes each load the runtime; not actionable
+            repeats.append({"url": url, "times": times, "kb": round(size / 1024),
+                            "who": f"{attr['app']} [{attr['owner']}]"})
+    repeats.sort(key=lambda r: -r["kb"])
+    vids = [{"source": src, "requests": n, "kb": round(size / 1024)}
+            for src, (n, size) in videos.items() if size / 1024 >= VIDEO_MIN_KB]
+    vids.sort(key=lambda v: -v["kb"])
+    return repeats[:MAX_NODES], vids[:MAX_NODES]
 
 
 def run_validity(url, docs):
@@ -610,6 +672,26 @@ def render(result, compare=None) -> str:
             L += ["", "```", "\n".join(row), "```"]
         if not page["inp"]["available"]:
             L += ["", f"> INP: **Undetermined.** {page['inp']['note']}"]
+
+        weight = page.get("weight") or []
+        if weight:
+            total = next((w for w in weight if w["type"] == "total"), None)
+            parts = [f"{w['type']} {w['kb']}KB/{w['requests']}" for w in
+                     sorted((w for w in weight if w["type"] not in ("total", "third-party")),
+                            key=lambda w: -w["kb"]) if w["requests"]]
+            third = next((w for w in weight if w["type"] == "third-party"), None)
+            line = "Weight: " + (f"**{total['kb']}KB** in {total['requests']} requests. " if total else "")
+            line += ", ".join(parts)
+            if third:
+                line += f". Third-party share {third['kb']}KB/{third['requests']}"
+            L += ["", line + "."]
+        main = page.get("main_thread") or []
+        if main:
+            L.append("Main thread: " + ", ".join(f"{m['group']} {m['ms']}ms" for m in main[:6]) + ".")
+        for r in page.get("repeat_fetches") or []:
+            L.append(f"Fetched {r['times']}x: {r['url'][:110]} ({r['kb']}KB total) | {r['who']}")
+        for v in page.get("video_bytes") or []:
+            L.append(f"Video: {v['kb']}KB in {v['requests']} requests from {v['source'][:110]}")
 
         for r in page.get("redirected") or []:
             mixed = r["runs"] < page["runs"]
