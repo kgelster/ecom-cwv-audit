@@ -7,6 +7,7 @@
 #   RUNS=5 scan.sh OUTDIR URL [URL...]        # more runs, tighter noise band
 #   FORM_FACTOR=desktop scan.sh OUTDIR URL    # default is mobile
 #   CHROME_PATH=/path/to/chrome scan.sh ...   # override browser autodetect
+#   WARMUP_BACKOFF=60 scan.sh ...             # seconds to wait after a 429/503 warm-up (default 30)
 #
 # Output files (N = 1-based URL index, R = 1-based run index):
 #   OUTDIR/lh-N-R-<slug>.json   Lighthouse performance category, one per run
@@ -34,6 +35,7 @@ OUTDIR="$1"; shift
 RUNS="${RUNS:-3}"
 FORM_FACTOR="${FORM_FACTOR:-mobile}"
 LH_MAJOR="${LH_MAJOR:-13}"
+WARMUP_BACKOFF="${WARMUP_BACKOFF:-30}"
 
 mkdir -p "$OUTDIR"
 : > "$OUTDIR/urls.tsv"
@@ -107,10 +109,25 @@ for url in "$@"; do
   printf '%s\t%s\n' "$i" "$url" >> "$OUTDIR/urls.tsv"
 
   # Warm-up. Non-fatal: a failure here only means run 1 may be cache-cold, and
-  # the median across runs still protects the result.
-  if ! curl -sS -o /dev/null --max-time 45 "$url" 2>> "$OUTDIR/scan-errors.log"; then
-    echo "  WARN warm-up fetch failed for $url; run 1 may be cache-cold" >&2
+  # the median across runs still protects the result. curl exits 0 on any HTTP
+  # status, so read the status: a 429 or 503 means the storefront is
+  # rate-limiting this machine, and Lighthouse may then measure Shopify's
+  # "Too many requests" page instead of the store.
+  code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 45 "$url" 2>> "$OUTDIR/scan-errors.log") || code=000
+  if [ "$code" = "429" ] || [ "$code" = "503" ]; then
+    echo "  WARN warm-up got HTTP $code for $url; waiting ${WARMUP_BACKOFF}s before measuring" >&2
+    sleep "$WARMUP_BACKOFF"
+    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 45 "$url" 2>> "$OUTDIR/scan-errors.log") || code=000
+    if [ "$code" = "429" ] || [ "$code" = "503" ]; then
+      echo "  WARN still HTTP $code after backing off: the store is rate-limiting this scan." \
+           "Runs for $url may measure an error page. Pause and re-run later." >&2
+    fi
   fi
+  case "$code" in
+    2*|3*|429|503) ;;
+    000) echo "  WARN warm-up fetch failed for $url; run 1 may be cache-cold" >&2 ;;
+    *) echo "  WARN warm-up got HTTP $code for $url" >&2 ;;
+  esac
 
   r=0
   while [ "$r" -lt "$RUNS" ]; do
