@@ -2,7 +2,7 @@
  "_comment": "Third-party network entity -> Shopify app -> fix route. Used by merge_findings.py to attribute Lighthouse third-parties-insight rows. Matching is substring-on-hostname, most specific match wins. Seeded from ecom-a11y-audit/skills/a11y-audit/references/shopify-attribution.md, remapped from CSS selectors to script hostnames because third-parties-insight keys on network entities, not DOM.",
  "_owner_values": "theme | app | shopify | analytics | payment | unknown",
  "_surface_values": "settings (app has a config/custom-CSS field that can reach it) | vendor (only the vendor can change it) | theme (merchant controls the embed) | none",
- "version": "2026-09-24",
+ "version": "2026-10-08",
  "first_party": [
   {
    "match": [
@@ -30,6 +30,18 @@
    "surface": "none",
    "route": "Shopify-owned telemetry and platform scripts. Not removable. Report as fixed overhead, never as an action item.",
    "perf_notes": "Web Pixels and Shop Pay. Counts against TBT but is not merchant-actionable."
+  },
+  {
+   "match": [
+    "/cdn/shop/products/",
+    "/cdn/shop/collections/",
+    "/cdn/shop/videos/"
+   ],
+   "entity": "Shopify CDN (store media)",
+   "owner": "theme",
+   "surface": "theme",
+   "route": "Merchant-uploaded product, collection and video media served from the store's own domain. File weight is content; how much of it loads (image_url widths, srcset, loading, autoplay, preload) is a theme decision.",
+   "perf_notes": "Product video served as HLS/MP4 segments under /cdn/shop/videos/. A looping autoplay video, or two video elements for the same media, can re-download segments for the whole trace."
   }
  ],
  "apps": [
@@ -560,6 +572,68 @@
    "owner": "unknown",
    "surface": "none",
    "route": "Unidentified. Injected via Shopify script tag on one store (loader.js?g_cvt_id=...&shop=...). Identify the owning app in the store admin before recommending anything.",
+   "perf_notes": ""
+  },
+  {
+   "match": [
+    "buywithprime.amazon.com",
+    "elements.amazon"
+   ],
+   "entity": "Buy with Prime",
+   "app": "Buy with Prime",
+   "category": "checkout / fulfilment",
+   "owner": "app",
+   "surface": "theme",
+   "route": "Often pasted as a Custom Liquid block in each product template (search templates/product*.json for code.buywithprime.amazon.com) rather than installed as an app embed. The synchronous default.variant.selector script and fetchpriority='high' on bwp.v1.js are editable there. The ratings bundle itself is Amazon's.",
+   "perf_notes": "bwp.v1.js pulls Amazon's amazon-product-rating elements bundle, about 1.8MB with ~60% unused, on every PDP that carries the widget. Short cache lifetimes (60s) on all Buy with Prime assets."
+  },
+  {
+   "match": [
+    "bazaarvoice.com"
+   ],
+   "entity": "Bazaarvoice",
+   "app": "Bazaarvoice Reviews",
+   "category": "reviews",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Bazaarvoice admin. bv.js loads site-wide even when the theme's Bazaarvoice blocks are disabled. If reviews moved to another app, uninstalling removes it.",
+   "perf_notes": "Throws 'Bazaarvoice is not configured for the domain' when the deployment does not list the storefront's domain."
+  },
+  {
+   "match": [
+    "returngo.ai"
+   ],
+   "entity": "ReturnGO",
+   "app": "ReturnGO",
+   "category": "returns",
+   "owner": "app",
+   "surface": "settings",
+   "route": "ReturnGO admin. The storefront script loads site-wide; ask ReturnGO whether it can be limited to the returns portal page.",
+   "perf_notes": ""
+  },
+  {
+   "match": [
+    "orderprotection.com"
+   ],
+   "entity": "Order Protection",
+   "app": "Order Protection",
+   "category": "shipping protection",
+   "owner": "app",
+   "surface": "theme",
+   "route": "Often hard-coded in layout/theme.liquid as a synchronous script plus an inline OrderProtection.createOrderProtectionWidget() init. The widget anchors to a selector in the cart; if that selector is missing from the theme, the script loads for nothing. Gate it to the cart template, or confirm it is still in use.",
+   "perf_notes": "Version-pinned path (/widget/shopify/<version>/orderprotection.js), one-hour cache lifetime."
+  },
+  {
+   "match": [
+    "aggle.net",
+    "opensend.com"
+   ],
+   "entity": "Opensend",
+   "app": "Opensend",
+   "category": "identity / email capture",
+   "owner": "app",
+   "surface": "settings",
+   "route": "Opensend app embed (theme editor > App embeds). The OIR SDK loads from cdn.aggle.net site-wide.",
    "perf_notes": ""
   }
  ],
