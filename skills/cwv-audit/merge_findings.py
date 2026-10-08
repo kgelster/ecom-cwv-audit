@@ -232,6 +232,11 @@ def ex_table(audit, cols=("url", "wastedBytes", "wastedMs", "totalBytes")):
     return audit.get("title", "issue"), ev
 
 
+def _page_key(u: str) -> str:
+    """Scheme, host and path, no query or trailing slash."""
+    return str(u or "").split("?")[0].split("#")[0].rstrip("/")
+
+
 def diagnostic_finding(audit_id, audit, apps, page_url=""):
     """Per-script diagnostic with each row attributed to the owning app.
 
@@ -241,6 +246,9 @@ def diagnostic_finding(audit_id, audit, apps, page_url=""):
     """
     rows = ((audit.get("details") or {}).get("items") or [])
     ev, owners = [], set()
+    # The requested URL and, after a market or locale redirect, the final one.
+    pages = {page_url} if isinstance(page_url, str) else set(page_url or ())
+    pages = {_page_key(p) for p in pages if p}
     for row in rows[:MAX_NODES]:
         url = str(row.get("url") or "")
         if audit_id == "unused-javascript":
@@ -252,7 +260,7 @@ def diagnostic_finding(audit_id, audit, apps, page_url=""):
                     f"{round(row.get('scriptParseCompile') or 0)}ms parse)")
         else:
             cost = f"{round((row.get('totalBytes') or 0) / 1024)}KB"
-        if page_url and url.split("?")[0].rstrip("/") == page_url.split("?")[0].rstrip("/"):
+        if pages and _page_key(url) in pages:
             # Inline <script> in the HTML. Could be theme code or an app embed
             # injected through theme.liquid; the URL alone cannot say which.
             who = "inline scripts in the HTML document [theme or app embed]"
@@ -386,6 +394,7 @@ def summarise_url(url, docs):
                 "a scripted interaction trace via chrome-devtools-mcp.",
     }
 
+    out["run_warnings"], out["redirected"] = run_validity(url, docs)
     out["audit_states"] = audit_states(docs)
     bench = [(d.get("environment") or {}).get("benchmarkIndex") for d in docs]
     bench = [b for b in bench if isinstance(b, (int, float))]
@@ -402,7 +411,8 @@ def summarise_url(url, docs):
     for audit_id, audit in sorted((ref.get("audits") or {}).items()):
         if audit_id in DIAGNOSTICS:
             if audit.get("score") is not None and audit["score"] < 1:
-                out["findings"].append(diagnostic_finding(audit_id, audit, apps, url))
+                page_urls = {url, ref.get("finalDisplayedUrl"), ref.get("finalUrl")}
+                out["findings"].append(diagnostic_finding(audit_id, audit, apps, page_urls))
             continue
         if not audit_id.endswith("-insight"):
             continue
@@ -442,6 +452,34 @@ def summarise_url(url, docs):
     _check_lcp_consistency(out)
     out["findings"].sort(key=lambda f: (-f.get("estimated_savings_ms", 0), f.get("severity", "P3")))
     return out
+
+
+def run_validity(url, docs):
+    """Lighthouse run warnings, and runs that landed on a different page.
+
+    A run that timed out ("The page loaded too slowly to finish within the time
+    limit") or was redirected still writes a full report, so it is counted as
+    usable unless runWarnings is read. A Shopify Markets redirect (/ -> /en-ca)
+    can hit some runs and not others, which mixes two pages into one median.
+    preview_theme_id and other query strings are ignored, so the preview cookie
+    hop is not reported as a redirect.
+    """
+    warn_counts = {}
+    for d in docs:
+        for w in d.get("runWarnings") or []:
+            w = " ".join(str(w).split())
+            warn_counts[w] = warn_counts.get(w, 0) + 1
+    warnings = [{"warning": w, "runs": n}
+                for w, n in sorted(warn_counts.items(), key=lambda kv: -kv[1])]
+
+    finals = {}
+    for d in docs:
+        req = d.get("requestedUrl") or url
+        fin = d.get("finalDisplayedUrl") or d.get("finalUrl") or req
+        if _page_key(fin) != _page_key(req):
+            finals[fin] = finals.get(fin, 0) + 1
+    redirected = [{"final_url": f, "runs": n} for f, n in finals.items()]
+    return warnings, redirected
 
 
 def audit_states(docs):
@@ -572,6 +610,20 @@ def render(result, compare=None) -> str:
             L += ["", "```", "\n".join(row), "```"]
         if not page["inp"]["available"]:
             L += ["", f"> INP: **Undetermined.** {page['inp']['note']}"]
+
+        for r in page.get("redirected") or []:
+            mixed = r["runs"] < page["runs"]
+            L += ["", f"> REDIRECTED: {r['runs']}/{page['runs']} runs landed on {r['final_url']}, "
+                      "not the requested URL. "
+                      + ("Only some runs redirected, so the medians and noise band mix two pages. "
+                         if mixed else "Every run measured the redirected page. ")
+                      + "A Shopify Markets or locale redirect is the usual cause."]
+        warns = page.get("run_warnings") or []
+        if warns:
+            L += ["", "> RUN WARNINGS from Lighthouse. A warned run still counts as usable above, "
+                      "so read these before trusting its numbers:"]
+            for w in warns:
+                L.append(f"> - {w['runs']}/{page['runs']} runs: {w['warning'][:220]}")
 
         if ps and ps["spread"] >= 5:
             L += ["", f"> Noise band is {ps['spread']} points. Any 'improvement' smaller than "
